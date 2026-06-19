@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Album Shuffler</title>
+<style>
+  :root {
+    --bg: #121212;
+    --panel: #181818;
+    --panel2: #242424;
+    --text: #ffffff;
+    --muted: #b3b3b3;
+    --green: #1db954;
+    --green-hover: #1ed760;
+    --border: #2a2a2a;
+    --err: #e0245e;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 640px; margin: 0 auto; padding: 24px 16px 64px; }
+  h1 { font-size: 1.6rem; margin: 0 0 4px; letter-spacing: -0.02em; }
+  .sub { color: var(--muted); font-size: 0.9rem; margin: 0 0 24px; }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 16px;
+  }
+  button {
+    font: inherit;
+    font-weight: 700;
+    border: none;
+    border-radius: 500px;
+    padding: 12px 28px;
+    cursor: pointer;
+    transition: transform 0.05s ease, background 0.15s ease, opacity 0.15s ease;
+  }
+  button:active { transform: scale(0.97); }
+  button:disabled { opacity: 0.45; cursor: not-allowed; }
+  .btn-primary { background: var(--green); color: #000; }
+  .btn-primary:hover:not(:disabled) { background: var(--green-hover); }
+  .btn-secondary { background: var(--panel2); color: var(--text); }
+  .btn-secondary:hover:not(:disabled) { background: #333; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  .status {
+    font-size: 0.85rem;
+    color: var(--muted);
+    margin-top: 14px;
+    white-space: pre-wrap;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    max-height: 280px;
+    overflow-y: auto;
+  }
+  .status .ok { color: var(--green); }
+  .status .bad { color: var(--err); }
+  a { color: var(--green-hover); }
+  .pill {
+    display: inline-block;
+    font-size: 0.75rem;
+    padding: 2px 10px;
+    border-radius: 500px;
+    background: var(--panel2);
+    color: var(--muted);
+    margin-left: 8px;
+    vertical-align: middle;
+  }
+  .pill.on { background: rgba(29,185,84,0.15); color: var(--green-hover); }
+  ol.albums { padding-left: 22px; margin: 8px 0 0; max-height: 240px; overflow-y: auto; }
+  ol.albums li { margin: 3px 0; color: var(--muted); font-size: 0.9rem; }
+  .playlist-link { margin-top: 12px; font-size: 0.95rem; }
+  .hint { font-size: 0.8rem; color: var(--muted); margin-top: 8px; }
+  code { background: var(--panel2); padding: 1px 6px; border-radius: 4px; font-size: 0.85em; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Album Shuffler <span id="authPill" class="pill">not connected</span></h1>
+  <p class="sub">Pulls the albums saved in your Spotify library, randomizes the album order, and writes the tracks to a playlist. Play that playlist top-to-bottom with shuffle <strong>OFF</strong> — albums play complete, in random order.</p>
+
+  <div class="card">
+    <div class="row">
+      <button id="connectBtn" class="btn-primary">Connect Spotify</button>
+      <button id="shuffleBtn" class="btn-primary" disabled>Shuffle &amp; Build Playlist</button>
+      <button id="logoutBtn" class="btn-secondary" style="display:none;">Disconnect</button>
+    </div>
+    <div id="playlistLink" class="playlist-link"></div>
+    <div id="status" class="status"></div>
+  </div>
+
+  <div class="card">
+    <div class="row" style="justify-content:space-between;">
+      <span><strong>Your saved albums</strong> <span id="albumCount" class="pill"></span></span>
+      <button id="refreshBtn" class="btn-secondary" style="display:none; padding:6px 16px;">Refresh</button>
+    </div>
+    <ol id="albumList" class="albums"></ol>
+    <p class="hint">This list is read fresh from your Spotify library every time you shuffle — add or remove saved albums in Spotify and they'll be reflected automatically. Nothing to edit here.</p>
+  </div>
+</div>
+
+<script>
+/* ============================================================
+   CONFIG  — fill these two in, then deploy.
+   ============================================================ */
+
+// 1. Your Spotify app Client ID (developer.spotify.com -> Dashboard -> app -> Settings).
+const CLIENT_ID = "1ec693cbc9954459bea66ee400f21a32";
+
+// 2. Must EXACTLY match the Redirect URI registered in your Spotify app,
+//    including the trailing slash. This is your GitHub Pages URL.
+const REDIRECT_URI = "https://mattow01.github.io/album-shuffler/";
+
+// Name of the playlist this tool writes to. Reused/overwritten each run.
+const PLAYLIST_NAME = "Album Shuffle";
+
+// Which saved-album types to include. Default: everything saved.
+// Options inside the array: "album", "single", "compilation".
+const ALBUM_TYPES = ["album", "single", "compilation"];
+
+/* ============================================================
+   END CONFIG — no need to edit below.
+   ============================================================ */
+
+const SCOPES = "playlist-modify-public playlist-modify-private user-library-read";
+const AUTH_URL = "https://accounts.spotify.com/authorize";
+const TOKEN_URL = "https://accounts.spotify.com/api/token";
+const API = "https://api.spotify.com/v1";
+
+const els = {
+  connect: document.getElementById("connectBtn"),
+  shuffle: document.getElementById("shuffleBtn"),
+  logout: document.getElementById("logoutBtn"),
+  refresh: document.getElementById("refreshBtn"),
+  status: document.getElementById("status"),
+  pill: document.getElementById("authPill"),
+  albumList: document.getElementById("albumList"),
+  albumCount: document.getElementById("albumCount"),
+  playlistLink: document.getElementById("playlistLink"),
+};
+
+/* ---------- small UI helpers ---------- */
+function log(msg, cls) {
+  const line = document.createElement("div");
+  if (cls) line.className = cls;
+  line.textContent = msg;
+  els.status.appendChild(line);
+  els.status.scrollTop = els.status.scrollHeight;
+}
+function clearLog() { els.status.innerHTML = ""; }
+function setConnected(yes) {
+  els.pill.textContent = yes ? "connected" : "not connected";
+  els.pill.className = "pill" + (yes ? " on" : "");
+  els.connect.style.display = yes ? "none" : "";
+  els.logout.style.display = yes ? "" : "none";
+  els.refresh.style.display = yes ? "" : "none";
+  els.shuffle.disabled = !yes;
+}
+function shuffleInPlace(arr) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+/* ---------- PKCE helpers ---------- */
+function randomString(len) {
+  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
+  const bytes = crypto.getRandomValues(new Uint8Array(len));
+  return Array.from(bytes, b => chars[b % chars.length]).join("");
+}
+function base64url(bytes) {
+  let s = btoa(String.fromCharCode(...new Uint8Array(bytes)));
+  return s.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+async function sha256(str) {
+  const data = new TextEncoder().encode(str);
+  return crypto.subtle.digest("SHA-256", data);
+}
+
+/* ---------- token storage ---------- */
+const TOK = "spshuf_tokens";
+function saveTokens(t) { t.obtained = Date.now(); localStorage.setItem(TOK, JSON.stringify(t)); }
+function getTokens() { try { return JSON.parse(localStorage.getItem(TOK)); } catch (e) { return null; } }
+function clearTokens() { localStorage.removeItem(TOK); }
+function tokenExpired(t) {
+  if (!t || !t.access_token) return true;
+  return Date.now() > (t.obtained + (t.expires_in - 60) * 1000); // refresh a minute early
+}
+
+/* ---------- auth flow ---------- */
+async function beginAuth() {
+  if (CLIENT_ID.includes("PASTE_YOUR")) {
+    log("CLIENT_ID is not set. Edit the CONFIG block at the top of this file.", "bad");
+    return;
+  }
+  const verifier = randomString(64);
+  const challenge = base64url(await sha256(verifier));
+  localStorage.setItem("spshuf_verifier", verifier);
+  const params = new URLSearchParams({
+    client_id: CLIENT_ID,
+    response_type: "code",
+    redirect_uri: REDIRECT_URI,
+    code_challenge_method: "S256",
+    code_challenge: challenge,
+    scope: SCOPES,
+  });
+  window.location = AUTH_URL + "?" + params.toString();
+}
+
+async function exchangeCode(code) {
+  const verifier = localStorage.getItem("spshuf_verifier");
+  const body = new URLSearchParams({
+    client_id: CLIENT_ID,
+    grant_type: "authorization_code",
+    code: code,
+    redirect_uri: REDIRECT_URI,
+    code_verifier: verifier || "",
+  });
+  const res = await fetch(TOKEN_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body,
+  });
+  if (!res.ok) throw new Error("Token exchange failed: " + (await res.text()));
+  saveTokens(await res.json());
+  localStorage.removeItem("spshuf_verifier");
+}
+
+async function refreshToken() {
+  const t = getTokens();
+  if (!t || !t.refresh_token) throw new Error("No refresh token; reconnect.");
+  const body = new URLSearchParams({
+    client_id: CLIENT_ID,
+    grant_type: "refresh_token",
+    refresh_token: t.refresh_token,
+  });
+  const res = await fetch(TOKEN_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body,
+  });
+  if (!res.ok) throw new Error("Token refresh failed: " + (await res.text()));
+  const fresh = await res.json();
+  if (!fresh.refresh_token) fresh.refresh_token = t.refresh_token; // Spotify may omit it
+  saveTokens(fresh);
+}
+
+async function validToken() {
+  let t = getTokens();
+  if (tokenExpired(t)) { await refreshToken(); t = getTokens(); }
+  return t.access_token;
+}
+
+/* ---------- API helper with auto-refresh + rate-limit retry ---------- */
+async function api(path, opts = {}, retry = true) {
+  const token = await validToken();
+  const res = await fetch(path.startsWith("http") ? path : API + path, {
+    ...opts,
+    headers: {
+      "Authorization": "Bearer " + token,
+      "Content-Type": "application/json",
+      ...(opts.headers || {}),
+    },
+  });
+  if (res.status === 401 && retry) { await refreshToken(); return api(path, opts, false); }
+  if (res.status === 429) {
+    const wait = parseInt(res.headers.get("Retry-After") || "2", 10);
+    log("Rate limited; waiting " + wait + "s...");
+    await new Promise(r => setTimeout(r, (wait + 1) * 1000));
+    return api(path, opts, retry);
+  }
+  if (!res.ok) throw new Error(res.status + " on " + path + ": " + (await res.text()));
+  if (res.status === 204) return null;
+  return res.json();
+}
+
+/* ---------- Spotify operations ---------- */
+async function getUserId() {
+  const me = await api("/me");                 // GET /me — still available post-Feb 2026
+  return me.id;
+}
+
+// GET /me/albums (user-library-read). Paginated, max 50 per page.
+// Returns [{ id, uri, name, label, tracksObj, totalTracks, albumType }]
+async function getSavedAlbums() {
+  const albums = [];
+  let url = "/me/albums?limit=50";
+  while (url) {
+    const page = await api(url);
+    for (const item of page.items) {
+      const a = item.album;
+      if (!a) continue;
+      if (ALBUM_TYPES.length && !ALBUM_TYPES.includes(a.album_type)) continue;
+      albums.push({
+        id: a.id,
+        uri: a.uri,
+        name: a.artists && a.artists[0] ? a.artists[0].name + " — " + a.name : a.name,
+        tracksObj: a.tracks || null,
+        totalTracks: a.total_tracks || (a.tracks ? a.tracks.total : 0),
+        albumType: a.album_type,
+      });
+    }
+    url = page.next; // absolute URL or null
+  }
+  return albums;
+}
+
+// Track URIs for one album. Uses the inline track list from /me/albums when it's
+// complete; otherwise falls back to GET /albums/{id}/tracks (still available).
+async function getAlbumTrackUris(album) {
+  const inline = album.tracksObj;
+  if (inline && Array.isArray(inline.items) &&
+      (inline.total == null || inline.items.length >= inline.total)) {
+    return inline.items.filter(t => t && t.uri).map(t => t.uri);
+  }
+  const uris = [];
+  let url = "/albums/" + album.id + "/tracks?limit=50";
+  while (url) {
+    const page = await api(url);
+    for (const tr of page.items) if (tr && tr.uri) uris.push(tr.uri);
+    url = page.next;
+  }
+  return uris;
+}
+
+const PL_STORE = "spshuf_playlist_id";
+
+async function ensurePlaylist(userId) {
+  const existing = localStorage.getItem(PL_STORE);
+  if (existing) {
+    try {
+      await api("/playlists/" + existing + "?fields=id");
+      return existing;
+    } catch (e) {
+      log("Saved playlist not found; creating a new one.");
+      localStorage.removeItem(PL_STORE);
+    }
+  }
+  // POST /me/playlists — replaces the removed POST /users/{user_id}/playlists.
+  const pl = await api("/me/playlists", {
+    method: "POST",
+    body: JSON.stringify({
+      name: PLAYLIST_NAME,
+      public: false,
+      description: "Built by Album Shuffler. Play top-to-bottom with shuffle OFF.",
+    }),
+  });
+  localStorage.setItem(PL_STORE, pl.id);
+  return pl.id;
+}
+
+async function writePlaylist(playlistId, uris) {
+  // PUT /playlists/{id}/items replaces with up to 100 (was PUT .../tracks).
+  // POST /playlists/{id}/items appends the rest in batches of 100 (was POST .../tracks).
+  const base = "/playlists/" + playlistId + "/items";
+  await api(base, { method: "PUT", body: JSON.stringify({ uris: uris.slice(0, 100) }) });
+  for (let i = 100; i < uris.length; i += 100) {
+    await api(base, { method: "POST", body: JSON.stringify({ uris: uris.slice(i, i + 100) }) });
+  }
+}
+
+/* ---------- library display ---------- */
+let cachedAlbums = null;
+async function refreshLibrary() {
+  els.refresh.disabled = true;
+  els.albumCount.textContent = "loading...";
+  try {
+    cachedAlbums = await getSavedAlbums();
+    renderAlbums(cachedAlbums);
+  } catch (e) {
+    log("Couldn't load library: " + e.message, "bad");
+    els.albumCount.textContent = "";
+  } finally {
+    els.refresh.disabled = false;
+  }
+}
+function renderAlbums(albums) {
+  els.albumCount.textContent = albums.length + (albums.length === 1 ? " album" : " albums");
+  els.albumList.innerHTML = "";
+  if (albums.length === 0) {
+    const li = document.createElement("li");
+    li.textContent = "(no saved albums match the current filter)";
+    els.albumList.appendChild(li);
+    return;
+  }
+  for (const a of albums) {
+    const li = document.createElement("li");
+    li.textContent = a.name;
+    els.albumList.appendChild(li);
+  }
+}
+
+/* ---------- main action ---------- */
+async function runShuffle() {
+  clearLog();
+  els.playlistLink.innerHTML = "";
+  els.shuffle.disabled = true;
+  els.refresh.disabled = true;
+  try {
+    log("Reading your saved albums...");
+    const albums = await getSavedAlbums();   // always fresh
+    cachedAlbums = albums;
+    renderAlbums(albums);
+    if (albums.length === 0) {
+      log("No saved albums found in your library (with the current filter).", "bad");
+      return;
+    }
+    const order = shuffleInPlace([...albums]);
+    log("Shuffled " + order.length + " albums.", "ok");
+
+    const userId = await getUserId();
+    log("Spotify user: " + userId);
+
+    const allUris = [];
+    let idx = 0;
+    for (const album of order) {
+      idx++;
+      const uris = await getAlbumTrackUris(album);
+      log("  " + idx + ". " + album.name + "  (" + uris.length + " tracks)");
+      allUris.push(...uris);
+    }
+    if (allUris.length === 0) {
+      log("No playable tracks found.", "bad");
+      return;
+    }
+    log("Total tracks: " + allUris.length);
+
+    const playlistId = await ensurePlaylist(userId);
+    await writePlaylist(playlistId, allUris);
+    log("Playlist updated.", "ok");
+
+    const link = "https://open.spotify.com/playlist/" + playlistId;
+    els.playlistLink.innerHTML =
+      'Open <a href="' + link + '" target="_blank" rel="noopener">' + PLAYLIST_NAME +
+      "</a> in Spotify and play from the top with shuffle OFF.";
+  } catch (e) {
+    log("Error: " + e.message, "bad");
+  } finally {
+    els.shuffle.disabled = false;
+    els.refresh.disabled = false;
+  }
+}
+
+/* ---------- boot ---------- */
+async function boot() {
+  els.connect.addEventListener("click", beginAuth);
+  els.shuffle.addEventListener("click", runShuffle);
+  els.refresh.addEventListener("click", refreshLibrary);
+  els.logout.addEventListener("click", () => {
+    clearTokens();
+    localStorage.removeItem(PL_STORE);
+    setConnected(false);
+    renderAlbums([]);
+    els.albumCount.textContent = "";
+    clearLog();
+    log("Disconnected.");
+  });
+
+  // Handle the OAuth redirect back.
+  const params = new URLSearchParams(window.location.search);
+  if (params.get("error")) {
+    log("Authorization denied: " + params.get("error"), "bad");
+    window.history.replaceState({}, document.title, REDIRECT_URI);
+  } else if (params.get("code")) {
+    try {
+      await exchangeCode(params.get("code"));
+      window.history.replaceState({}, document.title, REDIRECT_URI);
+      log("Connected.", "ok");
+    } catch (e) {
+      log(e.message, "bad");
+    }
+  }
+
+  // Reflect current auth state, then load the library if connected.
+  const t = getTokens();
+  if (t && t.refresh_token) {
+    try {
+      if (tokenExpired(t)) await refreshToken();
+      setConnected(true);
+      await refreshLibrary();
+    } catch (e) {
+      setConnected(false);
+    }
+  } else {
+    setConnected(false);
+  }
+}
+
+boot();
+</script>
+</body>
+</html>

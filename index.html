@@ -25,7 +25,7 @@
     line-height: 1.5;
     -webkit-font-smoothing: antialiased;
   }
-  .wrap { max-width: 640px; margin: 0 auto; padding: 24px 16px 64px; }
+  .wrap { max-width: 660px; margin: 0 auto; padding: 24px 16px 64px; }
   h1 { font-size: 1.6rem; margin: 0 0 4px; letter-spacing: -0.02em; }
   .sub { color: var(--muted); font-size: 0.9rem; margin: 0 0 24px; }
   .card {
@@ -45,7 +45,7 @@
     transition: transform 0.05s ease, background 0.15s ease, opacity 0.15s ease;
   }
   button:active { transform: scale(0.97); }
-  button:disabled { opacity: 0.45; cursor: not-allowed; }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
   .btn-primary { background: var(--green); color: #000; }
   .btn-primary:hover:not(:disabled) { background: var(--green-hover); }
   .btn-secondary { background: var(--panel2); color: var(--text); }
@@ -74,17 +74,67 @@
     vertical-align: middle;
   }
   .pill.on { background: rgba(29,185,84,0.15); color: var(--green-hover); }
-  ol.albums { padding-left: 22px; margin: 8px 0 0; max-height: 240px; overflow-y: auto; }
-  ol.albums li { margin: 3px 0; color: var(--muted); font-size: 0.9rem; }
   .playlist-link { margin-top: 12px; font-size: 0.95rem; }
-  .hint { font-size: 0.8rem; color: var(--muted); margin-top: 8px; }
+  .hint { font-size: 0.8rem; color: var(--muted); margin-top: 10px; }
   code { background: var(--panel2); padding: 1px 6px; border-radius: 4px; font-size: 0.85em; }
+
+  /* Play-first panel */
+  .pinpanel {
+    background: var(--panel2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 14px;
+    margin: 10px 0 12px;
+  }
+  .pinpanel .title { font-size: 0.85rem; font-weight: 700; margin-bottom: 8px; }
+  .pinpanel.empty .title { color: var(--muted); font-weight: 400; }
+  ol.pinned { list-style: none; padding: 0; margin: 0; }
+  ol.pinned li { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 0.9rem; }
+  ol.pinned .num {
+    flex: 0 0 auto; width: 22px; height: 22px; border-radius: 500px;
+    background: var(--green); color: #000; font-weight: 700; font-size: 0.78rem;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  ol.pinned .nm { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  ol.pinned .nm.gone { color: var(--err); font-style: italic; }
+  .iconbtn {
+    font-weight: 700; font-size: 0.8rem; line-height: 1;
+    background: var(--panel); color: var(--text);
+    border: 1px solid var(--border); border-radius: 6px;
+    padding: 4px 8px; cursor: pointer;
+  }
+  .iconbtn:hover:not(:disabled) { background: #2e2e2e; }
+  .iconbtn:disabled { opacity: 0.3; cursor: not-allowed; }
+  .clearlink {
+    background: none; border: none; color: var(--muted); cursor: pointer;
+    font-size: 0.8rem; padding: 6px 0 0; text-decoration: underline; font-weight: 400;
+    border-radius: 0;
+  }
+  .clearlink:hover { color: var(--text); }
+
+  /* Album list */
+  ol.albums { list-style: none; padding: 0; margin: 8px 0 0; max-height: 300px; overflow-y: auto; }
+  ol.albums li {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 0.9rem;
+  }
+  ol.albums li:last-child { border-bottom: none; }
+  ol.albums .nm { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  ol.albums li.ispinned .nm { color: var(--text); }
+  .addbtn {
+    flex: 0 0 auto; font-weight: 700; font-size: 0.78rem; line-height: 1;
+    padding: 6px 12px; border-radius: 500px; border: 1px solid var(--border);
+    background: var(--panel2); color: var(--text); cursor: pointer; white-space: nowrap;
+  }
+  .addbtn:hover:not(:disabled) { background: #333; }
+  .addbtn:disabled { opacity: 0.35; cursor: not-allowed; }
+  .addbtn.on { background: var(--green); color: #000; border-color: var(--green); }
 </style>
 </head>
 <body>
 <div class="wrap">
   <h1>Album Shuffler <span id="authPill" class="pill">not connected</span></h1>
-  <p class="sub">Pulls the albums saved in your Spotify library, randomizes the album order, and writes the tracks to a playlist. Play that playlist top-to-bottom with shuffle <strong>OFF</strong> — albums play complete, in random order.</p>
+  <p class="sub">Pulls the albums saved in your Spotify library and writes them to a playlist. Pin up to 5 albums to play first in a set order; the rest are randomized after them. Play the playlist top-to-bottom with shuffle <strong>OFF</strong> — albums play complete.</p>
 
   <div class="card">
     <div class="row">
@@ -101,8 +151,9 @@
       <span><strong>Your saved albums</strong> <span id="albumCount" class="pill"></span></span>
       <button id="refreshBtn" class="btn-secondary" style="display:none; padding:6px 16px;">Refresh</button>
     </div>
+    <div id="pinnedPanel"></div>
     <ol id="albumList" class="albums"></ol>
-    <p class="hint">This list is read fresh from your Spotify library every time you shuffle — add or remove saved albums in Spotify and they'll be reflected automatically. Nothing to edit here.</p>
+    <p class="hint">This list is read fresh from your Spotify library every time you shuffle. Use <strong>Play first</strong> to pin up to 5 albums to the front of the playlist in the order you pin them; reorder them with the arrows. Everything not pinned is randomized after.</p>
   </div>
 </div>
 
@@ -125,6 +176,9 @@ const PLAYLIST_NAME = "Album Shuffle";
 // Options inside the array: "album", "single", "compilation".
 const ALBUM_TYPES = ["album", "single", "compilation"];
 
+// How many albums you can pin to the front.
+const MAX_PINS = 5;
+
 /* ============================================================
    END CONFIG — no need to edit below.
    ============================================================ */
@@ -144,6 +198,7 @@ const els = {
   albumList: document.getElementById("albumList"),
   albumCount: document.getElementById("albumCount"),
   playlistLink: document.getElementById("playlistLink"),
+  pinnedPanel: document.getElementById("pinnedPanel"),
 };
 
 /* ---------- small UI helpers ---------- */
@@ -170,6 +225,36 @@ function shuffleInPlace(arr) {
   }
   return arr;
 }
+
+/* ---------- pinned (play-first) selection ---------- */
+const PIN_STORE = "spshuf_pinned";
+let pinnedIds = [];          // ordered list of album IDs, max MAX_PINS
+let cachedAlbums = null;     // last loaded library
+
+function loadPins() {
+  try { pinnedIds = JSON.parse(localStorage.getItem(PIN_STORE)) || []; }
+  catch (e) { pinnedIds = []; }
+  if (!Array.isArray(pinnedIds)) pinnedIds = [];
+  pinnedIds = pinnedIds.slice(0, MAX_PINS);
+}
+function savePins() { localStorage.setItem(PIN_STORE, JSON.stringify(pinnedIds)); }
+function isPinned(id) { return pinnedIds.indexOf(id) >= 0; }
+function togglePin(id) {
+  const i = pinnedIds.indexOf(id);
+  if (i >= 0) pinnedIds.splice(i, 1);
+  else if (pinnedIds.length < MAX_PINS) pinnedIds.push(id);
+  savePins();
+  renderAlbums(cachedAlbums || []);
+}
+function movePin(id, dir) {
+  const i = pinnedIds.indexOf(id);
+  const j = i + dir;
+  if (i < 0 || j < 0 || j >= pinnedIds.length) return;
+  const tmp = pinnedIds[i]; pinnedIds[i] = pinnedIds[j]; pinnedIds[j] = tmp;
+  savePins();
+  renderAlbums(cachedAlbums || []);
+}
+function clearPins() { pinnedIds = []; savePins(); renderAlbums(cachedAlbums || []); }
 
 /* ---------- PKCE helpers ---------- */
 function randomString(len) {
@@ -290,7 +375,6 @@ async function getUserId() {
 }
 
 // GET /me/albums (user-library-read). Paginated, max 50 per page.
-// Returns [{ id, uri, name, label, tracksObj, totalTracks, albumType }]
 async function getSavedAlbums() {
   const albums = [];
   let url = "/me/albums?limit=50";
@@ -314,8 +398,8 @@ async function getSavedAlbums() {
   return albums;
 }
 
-// Track URIs for one album. Uses the inline track list from /me/albums when it's
-// complete; otherwise falls back to GET /albums/{id}/tracks (still available).
+// Track URIs for one album. Uses the inline track list from /me/albums when complete;
+// otherwise falls back to GET /albums/{id}/tracks (still available).
 async function getAlbumTrackUris(album) {
   const inline = album.tracksObj;
   if (inline && Array.isArray(inline.items) &&
@@ -368,8 +452,18 @@ async function writePlaylist(playlistId, uris) {
   }
 }
 
-/* ---------- library display ---------- */
-let cachedAlbums = null;
+// Build the album play order: pinned albums (in pin order, if still in library)
+// first, then everything else shuffled.
+function buildOrder(albums) {
+  const byId = new Map(albums.map(a => [a.id, a]));
+  const pinned = pinnedIds.map(id => byId.get(id)).filter(Boolean);
+  const pinnedSet = new Set(pinned.map(a => a.id));
+  const rest = albums.filter(a => !pinnedSet.has(a.id));
+  shuffleInPlace(rest);
+  return { order: pinned.concat(rest), pinned, rest };
+}
+
+/* ---------- library + pinned display ---------- */
 async function refreshLibrary() {
   els.refresh.disabled = true;
   els.albumCount.textContent = "loading...";
@@ -383,18 +477,108 @@ async function refreshLibrary() {
     els.refresh.disabled = false;
   }
 }
+
+function renderPinnedPanel(albums) {
+  const byId = new Map(albums.map(a => [a.id, a]));
+  els.pinnedPanel.innerHTML = "";
+  const panel = document.createElement("div");
+  panel.className = "pinpanel" + (pinnedIds.length ? "" : " empty");
+
+  const title = document.createElement("div");
+  title.className = "title";
+  title.textContent = pinnedIds.length
+    ? "Play first (" + pinnedIds.length + "/" + MAX_PINS + "):"
+    : "No albums pinned — all albums will be randomized. Pin up to " + MAX_PINS + " to play first.";
+  panel.appendChild(title);
+
+  if (pinnedIds.length) {
+    const ol = document.createElement("ol");
+    ol.className = "pinned";
+    pinnedIds.forEach((id, k) => {
+      const album = byId.get(id);
+      const li = document.createElement("li");
+
+      const num = document.createElement("span");
+      num.className = "num";
+      num.textContent = (k + 1);
+      li.appendChild(num);
+
+      const nm = document.createElement("span");
+      nm.className = "nm" + (album ? "" : " gone");
+      nm.textContent = album ? album.name : "(no longer in library — will be skipped)";
+      li.appendChild(nm);
+
+      const up = document.createElement("button");
+      up.className = "iconbtn"; up.textContent = "↑"; up.title = "Move up";
+      up.disabled = k === 0;
+      up.addEventListener("click", () => movePin(id, -1));
+      li.appendChild(up);
+
+      const down = document.createElement("button");
+      down.className = "iconbtn"; down.textContent = "↓"; down.title = "Move down";
+      down.disabled = k === pinnedIds.length - 1;
+      down.addEventListener("click", () => movePin(id, 1));
+      li.appendChild(down);
+
+      const rm = document.createElement("button");
+      rm.className = "iconbtn"; rm.textContent = "✕"; rm.title = "Remove";
+      rm.addEventListener("click", () => togglePin(id));
+      li.appendChild(rm);
+
+      ol.appendChild(li);
+    });
+    panel.appendChild(ol);
+
+    const clear = document.createElement("button");
+    clear.className = "clearlink";
+    clear.textContent = "Clear all";
+    clear.addEventListener("click", clearPins);
+    panel.appendChild(clear);
+  }
+
+  els.pinnedPanel.appendChild(panel);
+}
+
 function renderAlbums(albums) {
+  albums = albums || [];
   els.albumCount.textContent = albums.length + (albums.length === 1 ? " album" : " albums");
+  renderPinnedPanel(albums);
+
   els.albumList.innerHTML = "";
   if (albums.length === 0) {
     const li = document.createElement("li");
-    li.textContent = "(no saved albums match the current filter)";
+    const nm = document.createElement("span");
+    nm.className = "nm";
+    nm.textContent = "(no saved albums match the current filter)";
+    li.appendChild(nm);
     els.albumList.appendChild(li);
     return;
   }
+
+  const full = pinnedIds.length >= MAX_PINS;
   for (const a of albums) {
+    const pinned = isPinned(a.id);
     const li = document.createElement("li");
-    li.textContent = a.name;
+    if (pinned) li.className = "ispinned";
+
+    const nm = document.createElement("span");
+    nm.className = "nm";
+    nm.textContent = a.name;
+    li.appendChild(nm);
+
+    const btn = document.createElement("button");
+    btn.className = "addbtn" + (pinned ? " on" : "");
+    if (pinned) {
+      btn.textContent = "Playing #" + (pinnedIds.indexOf(a.id) + 1) + " ✓";
+      btn.title = "Remove from play-first";
+    } else {
+      btn.textContent = "Play first";
+      btn.disabled = full;
+      btn.title = full ? "You can pin at most " + MAX_PINS + " albums" : "Pin to the front";
+    }
+    btn.addEventListener("click", () => togglePin(a.id));
+    li.appendChild(btn);
+
     els.albumList.appendChild(li);
   }
 }
@@ -414,8 +598,12 @@ async function runShuffle() {
       log("No saved albums found in your library (with the current filter).", "bad");
       return;
     }
-    const order = shuffleInPlace([...albums]);
-    log("Shuffled " + order.length + " albums.", "ok");
+
+    const { order, pinned, rest } = buildOrder(albums);
+    if (pinned.length) {
+      log("Playing first: " + pinned.map(a => a.name).join("  |  "), "ok");
+    }
+    log("Randomized the remaining " + rest.length + " album(s).", "ok");
 
     const userId = await getUserId();
     log("Spotify user: " + userId);
@@ -424,8 +612,9 @@ async function runShuffle() {
     let idx = 0;
     for (const album of order) {
       idx++;
+      const tag = idx <= pinned.length ? " [pinned]" : "";
       const uris = await getAlbumTrackUris(album);
-      log("  " + idx + ". " + album.name + "  (" + uris.length + " tracks)");
+      log("  " + idx + ". " + album.name + tag + "  (" + uris.length + " tracks)");
       allUris.push(...uris);
     }
     if (allUris.length === 0) {
@@ -452,6 +641,7 @@ async function runShuffle() {
 
 /* ---------- boot ---------- */
 async function boot() {
+  loadPins();
   els.connect.addEventListener("click", beginAuth);
   els.shuffle.addEventListener("click", runShuffle);
   els.refresh.addEventListener("click", refreshLibrary);
@@ -459,10 +649,11 @@ async function boot() {
     clearTokens();
     localStorage.removeItem(PL_STORE);
     setConnected(false);
+    cachedAlbums = null;
     renderAlbums([]);
     els.albumCount.textContent = "";
     clearLog();
-    log("Disconnected.");
+    log("Disconnected. (Your play-first picks are kept.)");
   });
 
   // Handle the OAuth redirect back.

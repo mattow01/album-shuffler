@@ -153,7 +153,7 @@
     </div>
     <div id="pinnedPanel"></div>
     <ol id="albumList" class="albums"></ol>
-    <p class="hint">This list is read fresh from your Spotify library every time you shuffle. Use <strong>Play first</strong> to pin up to 5 albums to the front of the playlist in the order you pin them; reorder them with the arrows. Everything not pinned is randomized after.</p>
+    <p class="hint">Sorted alphabetically by artist, then by album release date. This list is read fresh from your Spotify library every time you shuffle. Use <strong>Play first</strong> to pin up to 5 albums to the front of the playlist in the order you pin them; reorder them with the arrows. Everything not pinned is randomized after.</p>
   </div>
 </div>
 
@@ -384,10 +384,14 @@ async function getSavedAlbums() {
       const a = item.album;
       if (!a) continue;
       if (ALBUM_TYPES.length && !ALBUM_TYPES.includes(a.album_type)) continue;
+      const artist = a.artists && a.artists[0] ? a.artists[0].name : "";
       albums.push({
         id: a.id,
         uri: a.uri,
-        name: a.artists && a.artists[0] ? a.artists[0].name + " — " + a.name : a.name,
+        artist: artist,
+        title: a.name,
+        releaseDate: a.release_date || "",
+        name: artist ? artist + " — " + a.name : a.name,
         tracksObj: a.tracks || null,
         totalTracks: a.total_tracks || (a.tracks ? a.tracks.total : 0),
         albumType: a.album_type,
@@ -395,7 +399,25 @@ async function getSavedAlbums() {
     }
     url = page.next; // absolute URL or null
   }
+  // Display order: alphabetical by artist, then by album release date (oldest first).
+  albums.sort((x, y) => {
+    const byArtist = (x.artist || "").localeCompare(y.artist || "", undefined,
+                       { sensitivity: "base", numeric: true });
+    if (byArtist !== 0) return byArtist;
+    return normReleaseDate(x.releaseDate).localeCompare(normReleaseDate(y.releaseDate));
+  });
   return albums;
+}
+
+// Normalize a Spotify release_date ("1991", "1991-08", "1991-08-26") to YYYY-MM-DD
+// so string compare orders chronologically. Unknown/missing dates sort last.
+function normReleaseDate(d) {
+  if (!d) return "9999-99-99";
+  const p = String(d).split("-");
+  const y = (p[0] || "0000").padStart(4, "0");
+  const m = (p[1] || "01").padStart(2, "0");
+  const day = (p[2] || "01").padStart(2, "0");
+  return y + "-" + m + "-" + day;
 }
 
 // Track URIs for one album. Uses the inline track list from /me/albums when complete;

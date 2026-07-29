@@ -465,20 +465,14 @@ async function findOwnedPlaylistByName(userId, name) {
 }
 
 async function ensurePlaylist(userId) {
-  // Fast path: an id cached in this browser, but only if it still exists AND this
-  // user owns it. (Guards against a stale/foreign id from a previous run.)
-  const cached = localStorage.getItem(PL_STORE);
-  if (cached) {
-    try {
-      const pl = await api("/playlists/" + cached + "?fields=id,owner(id)");
-      if (pl && pl.owner && pl.owner.id === userId) return cached;
-    } catch (e) { /* fall through to lookup */ }
-    localStorage.removeItem(PL_STORE);
-  }
-  // Account-based lookup: reuse the existing playlist on any device.
+  // Always resolve against the live account. We intentionally do NOT trust a cached
+  // playlist id: Spotify never hard-deletes a playlist (delete = unfollow), so a direct
+  // id lookup would still resolve a playlist you deleted and wrongly reuse it. The name
+  // lookup scans your current library (GET /me/playlists), which excludes unfollowed
+  // playlists — so a deleted "Album Shuffle" correctly leads to a fresh one being made.
   const found = await findOwnedPlaylistByName(userId, PLAYLIST_NAME);
-  if (found) { localStorage.setItem(PL_STORE, found); return found; }
-  // None exists yet — create it. POST /me/playlists (replaces removed POST /users/{id}/playlists).
+  if (found) return found;
+  // None in your library — create it. POST /me/playlists (replaces removed POST /users/{id}/playlists).
   log("No existing playlist found; creating \"" + PLAYLIST_NAME + "\".");
   const pl = await api("/me/playlists", {
     method: "POST",
@@ -488,7 +482,6 @@ async function ensurePlaylist(userId) {
       description: "Built by Album Shuffler. Play top-to-bottom with shuffle OFF.",
     }),
   });
-  localStorage.setItem(PL_STORE, pl.id);
   return pl.id;
 }
 

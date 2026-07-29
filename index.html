@@ -183,7 +183,7 @@ const MAX_PINS = 5;
    END CONFIG — no need to edit below.
    ============================================================ */
 
-const SCOPES = "playlist-modify-public playlist-modify-private user-library-read";
+const SCOPES = "playlist-modify-public playlist-modify-private playlist-read-private user-library-read";
 const AUTH_URL = "https://accounts.spotify.com/authorize";
 const TOKEN_URL = "https://accounts.spotify.com/api/token";
 const API = "https://api.spotify.com/v1";
@@ -440,18 +440,46 @@ async function getAlbumTrackUris(album) {
 
 const PL_STORE = "spshuf_playlist_id";
 
-async function ensurePlaylist(userId) {
-  const existing = localStorage.getItem(PL_STORE);
-  if (existing) {
-    try {
-      await api("/playlists/" + existing + "?fields=id");
-      return existing;
-    } catch (e) {
-      log("Saved playlist not found; creating a new one.");
-      localStorage.removeItem(PL_STORE);
+// Find an existing playlist named PLAYLIST_NAME that THIS user owns, by scanning
+// the account (GET /me/playlists). This makes the tool device-independent: any
+// browser/device logged into the same Spotify account resolves to the same playlist.
+// If duplicates exist, pick the lexicographically-smallest id so every device
+// converges on the same one.
+async function findOwnedPlaylistByName(userId, name) {
+  const matches = [];
+  let url = "/me/playlists?limit=50";
+  while (url) {
+    const page = await api(url);
+    for (const p of page.items) {
+      if (p && p.name === name && p.owner && p.owner.id === userId) matches.push(p.id);
     }
+    url = page.next;
   }
-  // POST /me/playlists — replaces the removed POST /users/{user_id}/playlists.
+  if (matches.length === 0) return null;
+  matches.sort();
+  if (matches.length > 1) {
+    log("Note: " + matches.length + ' playlists named "' + name +
+        '" exist — using one and leaving the rest. Delete the extras in Spotify.', "bad");
+  }
+  return matches[0];
+}
+
+async function ensurePlaylist(userId) {
+  // Fast path: an id cached in this browser, but only if it still exists AND this
+  // user owns it. (Guards against a stale/foreign id from a previous run.)
+  const cached = localStorage.getItem(PL_STORE);
+  if (cached) {
+    try {
+      const pl = await api("/playlists/" + cached + "?fields=id,owner(id)");
+      if (pl && pl.owner && pl.owner.id === userId) return cached;
+    } catch (e) { /* fall through to lookup */ }
+    localStorage.removeItem(PL_STORE);
+  }
+  // Account-based lookup: reuse the existing playlist on any device.
+  const found = await findOwnedPlaylistByName(userId, PLAYLIST_NAME);
+  if (found) { localStorage.setItem(PL_STORE, found); return found; }
+  // None exists yet — create it. POST /me/playlists (replaces removed POST /users/{id}/playlists).
+  log("No existing playlist found; creating \"" + PLAYLIST_NAME + "\".");
   const pl = await api("/me/playlists", {
     method: "POST",
     body: JSON.stringify({
